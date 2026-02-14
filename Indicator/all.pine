@@ -1,0 +1,598 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+
+//@version=5
+indicator("Multi-Indicator Confluence System - Nifty/Sensex Options", 
+     shorttitle="Multi-Confluence", 
+     overlay=true,
+     max_labels_count=500,
+     max_lines_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 1: INPUT SETTINGS
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.1 Display Settings - Choose which indicators to show (to stay within plot limits)
+// ─────────────────────────────────────────────────────────────────────────────
+grp_display = "═══ DISPLAY SETTINGS ═══"
+showVWAP = input.bool(true, "Show VWAP", group=grp_display)
+showCPR = input.bool(true, "Show CPR (PP, BC, TC)", group=grp_display)
+showCPRSR = input.bool(false, "Show CPR S1,S2,R1,R2", group=grp_display, tooltip="Enable for additional support/resistance levels")
+showEMA = input.bool(true, "Show EMA Lines", group=grp_display)
+showSupertrend = input.bool(true, "Show Supertrend", group=grp_display)
+showBB = input.bool(false, "Show Bollinger Bands", group=grp_display, tooltip="Disable other indicators if enabling this")
+showPSAR = input.bool(false, "Show Parabolic SAR", group=grp_display, tooltip="Disable other indicators if enabling this")
+showPrevDayHL = input.bool(false, "Show Prev Day High/Low", group=grp_display)
+showSignalTable = input.bool(true, "Show Signal Dashboard", group=grp_display)
+showSignalLabels = input.bool(true, "Show Signal Labels on Chart", group=grp_display)
+tablePosition = input.string("Top Right", "Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_display)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.2 EMA Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_ema = "═══ EMA SETTINGS ═══"
+emaFastLen = input.int(9, "Fast EMA Period", minval=3, maxval=50, group=grp_ema)
+emaMedLen = input.int(21, "Medium EMA Period", minval=10, maxval=100, group=grp_ema)
+emaSlowLen = input.int(50, "Slow EMA Period", minval=20, maxval=200, group=grp_ema)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.3 RSI Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_rsi = "═══ RSI SETTINGS ═══"
+rsiLen = input.int(14, "RSI Period", minval=5, maxval=30, group=grp_rsi)
+rsiOB = input.int(70, "Overbought Level", minval=65, maxval=80, group=grp_rsi)
+rsiOS = input.int(30, "Oversold Level", minval=20, maxval=35, group=grp_rsi)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.4 MACD Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_macd = "═══ MACD SETTINGS ═══"
+macdFast = input.int(12, "MACD Fast Length", minval=5, maxval=30, group=grp_macd)
+macdSlow = input.int(26, "MACD Slow Length", minval=15, maxval=50, group=grp_macd)
+macdSignal = input.int(9, "MACD Signal Length", minval=5, maxval=20, group=grp_macd)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.5 Supertrend Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_st = "═══ SUPERTREND SETTINGS ═══"
+stATRPeriod = input.int(10, "ATR Period", minval=7, maxval=14, group=grp_st)
+stMultiplier = input.float(3.0, "Multiplier", minval=1.5, maxval=5.0, step=0.1, group=grp_st)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.6 Stochastic Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_stoch = "═══ STOCHASTIC SETTINGS ═══"
+stochK = input.int(14, "%K Length", minval=5, maxval=30, group=grp_stoch)
+stochKSmooth = input.int(3, "%K Smoothing", minval=1, maxval=10, group=grp_stoch)
+stochDSmooth = input.int(3, "%D Smoothing", minval=1, maxval=10, group=grp_stoch)
+stochOB = input.int(80, "Overbought", minval=70, maxval=90, group=grp_stoch)
+stochOS = input.int(20, "Oversold", minval=10, maxval=30, group=grp_stoch)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.7 Bollinger Bands Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_bb = "═══ BOLLINGER BANDS SETTINGS ═══"
+bbLen = input.int(20, "Period", minval=10, maxval=50, group=grp_bb)
+bbMult = input.float(2.0, "Std Deviation", minval=1.0, maxval=4.0, step=0.1, group=grp_bb)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.8 ADX Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_adx = "═══ ADX SETTINGS ═══"
+adxLen = input.int(14, "ADX Period", minval=7, maxval=30, group=grp_adx)
+adxThreshold = input.int(25, "ADX Threshold", minval=15, maxval=35, group=grp_adx)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.9 ATR & Volume Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_atr = "═══ ATR & VOLUME SETTINGS ═══"
+atrLen = input.int(14, "ATR Period", minval=7, maxval=20, group=grp_atr)
+volSMALen = input.int(20, "Volume SMA Period", minval=10, maxval=50, group=grp_atr)
+volMultiplier = input.float(1.5, "High Volume Multiplier", minval=1.2, maxval=3.0, step=0.1, group=grp_atr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.10 Signal Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_signal = "═══ SIGNAL SETTINGS ═══"
+minCallScore = input.int(15, "Min CALL Score for Signal", minval=10, maxval=25, group=grp_signal)
+minPutScore = input.int(15, "Min PUT Score for Signal", minval=10, maxval=25, group=grp_signal)
+slMultiplier = input.float(1.5, "Stop Loss (ATR Multiplier)", minval=1.0, maxval=3.0, step=0.1, group=grp_signal)
+target1Points = input.int(30, "Target 1 (Points)", minval=10, maxval=100, group=grp_signal)
+target2Points = input.int(50, "Target 2 (Points)", minval=20, maxval=200, group=grp_signal)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1.11 Time Filter Settings
+// ─────────────────────────────────────────────────────────────────────────────
+grp_time = "═══ TIME FILTER ═══"
+useTimeFilter = input.bool(false, "Avoid Signals in First 15 Minutes", group=grp_time)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 2: INDICATOR CALCULATIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.1 VWAP Calculation (Using built-in for reliability)
+// ─────────────────────────────────────────────────────────────────────────────
+vwapValue = ta.vwap(hlc3)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.2 CPR Calculation (Previous Day Data)
+// ─────────────────────────────────────────────────────────────────────────────
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+prevDayLow = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// CPR Calculations
+pivotPoint = (prevDayHigh + prevDayLow + prevDayClose) / 3
+bc = (prevDayHigh + prevDayLow) / 2
+tc = (pivotPoint - bc) + pivotPoint
+
+// Support & Resistance Levels
+r1 = (2 * pivotPoint) - prevDayLow
+r2 = pivotPoint + (prevDayHigh - prevDayLow)
+s1 = (2 * pivotPoint) - prevDayHigh
+s2 = pivotPoint - (prevDayHigh - prevDayLow)
+
+// CPR Width Analysis
+cprWidth = pivotPoint != 0 ? math.abs(tc - bc) / pivotPoint * 100 : 0
+isNarrowCPR = cprWidth < 0.1
+isWideCPR = cprWidth > 0.3
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.3 EMA Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+emaFast = ta.ema(close, emaFastLen)
+emaMed = ta.ema(close, emaMedLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+// EMA Crossover Detection
+emaBullishCross = ta.crossover(emaFast, emaMed)
+emaBearishCross = ta.crossunder(emaFast, emaMed)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.4 RSI Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+rsiValue = ta.rsi(close, rsiLen)
+isRSIOverbought = rsiValue > rsiOB
+isRSIOversold = rsiValue < rsiOS
+isRSINeutral = rsiValue >= 40 and rsiValue <= 60
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.5 MACD Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdBullish = macdLine > signalLine
+macdBearish = macdLine < signalLine
+macdBullishCross = ta.crossover(macdLine, signalLine)
+macdBearishCross = ta.crossunder(macdLine, signalLine)
+macdHistExpanding = math.abs(histLine) > math.abs(histLine[1])
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.6 Supertrend Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+[supertrend, direction] = ta.supertrend(stMultiplier, stATRPeriod)
+stBullish = direction < 0
+stBearish = direction > 0
+stFlipBullish = direction < 0 and direction[1] > 0
+stFlipBearish = direction > 0 and direction[1] < 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.7 Parabolic SAR Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+psarValue = ta.sar(0.02, 0.02, 0.2)
+psarBullish = close > psarValue
+psarBearish = close < psarValue
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.8 Stochastic Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+stochKValue = ta.sma(ta.stoch(close, high, low, stochK), stochKSmooth)
+stochDValue = ta.sma(stochKValue, stochDSmooth)
+stochBullishCross = ta.crossover(stochKValue, stochDValue) and stochKValue < stochOS
+stochBearishCross = ta.crossunder(stochKValue, stochDValue) and stochKValue > stochOB
+isStochOverbought = stochKValue > stochOB
+isStochOversold = stochKValue < stochOS
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.9 ATR Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+atrValue = ta.atr(atrLen)
+atrSMA = ta.sma(atrValue, 50)
+isATRNormal = atrValue <= atrSMA * 1.5 and atrValue >= atrSMA * 0.5
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.10 Bollinger Bands Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+bbBasis = ta.sma(close, bbLen)
+bbDev = bbMult * ta.stdev(close, bbLen)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+priceAtLowerBB = close <= bbLower * 1.005
+priceAtUpperBB = close >= bbUpper * 0.995
+
+// Bollinger Squeeze Detection
+bbWidth = (bbUpper - bbLower) / bbBasis
+bbWidthSMA = ta.sma(bbWidth, 50)
+isBBSqueeze = bbWidth < bbWidthSMA * 0.75
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.11 ADX Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+[diPlus, diMinus, adxValue] = ta.dmi(adxLen, adxLen)
+isTrending = adxValue > adxThreshold
+isChoppy = adxValue < 20
+isStrongUptrend = isTrending and diPlus > diMinus
+isStrongDowntrend = isTrending and diMinus > diPlus
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.12 Volume Analysis
+// ─────────────────────────────────────────────────────────────────────────────
+volSMA = ta.sma(volume, volSMALen)
+isHighVolume = volume > volSMA * volMultiplier
+isBullishVolume = isHighVolume and close > open
+isBearishVolume = isHighVolume and close < open
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.13 Support/Resistance Check
+// ─────────────────────────────────────────────────────────────────────────────
+nearSupport = math.abs(close - prevDayLow) / close < 0.002 or math.abs(close - s1) / close < 0.002
+nearResistance = math.abs(close - prevDayHigh) / close < 0.002 or math.abs(close - r1) / close < 0.002
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2.14 Time Filter
+// ─────────────────────────────────────────────────────────────────────────────
+currentHour = hour(time, "Asia/Kolkata")
+currentMinute = minute(time, "Asia/Kolkata")
+currentTimeInt = currentHour * 100 + currentMinute
+isFilteredTime = useTimeFilter and currentTimeInt >= 915 and currentTimeInt < 930
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 3: CONFLUENCE SCORING LOGIC
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3.1 CALL Signal Score Calculation (0-35 points max)
+// ─────────────────────────────────────────────────────────────────────────────
+callScore = 0
+
+// Core Indicators
+callScore += close > vwapValue ? 2 : 0                                    // VWAP
+callScore += close > tc ? 3 : 0                                           // CPR
+callScore += emaFast > emaMed and emaMed > emaSlow ? 2 : 0               // EMA Stack
+callScore += (isRSINeutral and emaFast > emaSlow) or isRSIOversold ? 2 : 0  // RSI
+callScore += macdBullish ? 3 : 0                                          // MACD
+callScore += stBullish ? 3 : 0                                            // Supertrend
+callScore += psarBullish ? 1 : 0                                          // Parabolic SAR
+callScore += stochBullishCross ? 2 : 0                                    // Stochastic
+callScore += isATRNormal ? 1 : 0                                          // ATR
+callScore += isHighVolume ? 1 : 0                                         // Volume
+callScore += priceAtLowerBB and isRSIOversold ? 1 : 0                    // Bollinger
+callScore += isStrongUptrend ? 2 : 0                                      // ADX
+callScore += nearSupport ? 1 : 0                                          // Near Support
+
+// Bonus Points
+callScore += isNarrowCPR and close > tc ? 1 : 0                          // Narrow CPR bonus
+callScore += emaBullishCross ? 1 : 0                                      // EMA Crossover
+callScore += macdBullishCross ? 2 : 0                                     // MACD Crossover
+callScore += stFlipBullish ? 2 : 0                                        // Supertrend Flip
+callScore += isBullishVolume ? 1 : 0                                      // Bullish Volume
+callScore += macdBullish and macdHistExpanding ? 1 : 0                   // MACD Expanding
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3.2 PUT Signal Score Calculation (0-35 points max)
+// ─────────────────────────────────────────────────────────────────────────────
+putScore = 0
+
+// Core Indicators
+putScore += close < vwapValue ? 2 : 0                                     // VWAP
+putScore += close < bc ? 3 : 0                                            // CPR
+putScore += emaFast < emaMed and emaMed < emaSlow ? 2 : 0                // EMA Stack
+putScore += (isRSINeutral and emaFast < emaSlow) or isRSIOverbought ? 2 : 0  // RSI
+putScore += macdBearish ? 3 : 0                                           // MACD
+putScore += stBearish ? 3 : 0                                             // Supertrend
+putScore += psarBearish ? 1 : 0                                           // Parabolic SAR
+putScore += stochBearishCross ? 2 : 0                                     // Stochastic
+putScore += isATRNormal ? 1 : 0                                           // ATR
+putScore += isHighVolume ? 1 : 0                                          // Volume
+putScore += priceAtUpperBB and isRSIOverbought ? 1 : 0                   // Bollinger
+putScore += isStrongDowntrend ? 2 : 0                                     // ADX
+putScore += nearResistance ? 1 : 0                                        // Near Resistance
+
+// Bonus Points
+putScore += isNarrowCPR and close < bc ? 1 : 0                           // Narrow CPR bonus
+putScore += emaBearishCross ? 1 : 0                                       // EMA Crossover
+putScore += macdBearishCross ? 2 : 0                                      // MACD Crossover
+putScore += stFlipBearish ? 2 : 0                                         // Supertrend Flip
+putScore += isBearishVolume ? 1 : 0                                       // Bearish Volume
+putScore += macdBearish and macdHistExpanding ? 1 : 0                    // MACD Expanding
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3.3 Apply Choppy Market Penalty & Limits
+// ─────────────────────────────────────────────────────────────────────────────
+if isChoppy
+    callScore -= 5
+    putScore -= 5
+
+callScore := math.max(0, math.min(35, callScore))
+putScore := math.max(0, math.min(35, putScore))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3.4 Signal Strength Classification
+// ─────────────────────────────────────────────────────────────────────────────
+callStrength = callScore >= 20 ? "STRONG" : callScore >= 15 ? "MODERATE" : callScore >= 10 ? "WEAK" : "NONE"
+putStrength = putScore >= 20 ? "STRONG" : putScore >= 15 ? "MODERATE" : putScore >= 10 ? "WEAK" : "NONE"
+
+// Determine Primary Signal
+isCallSignal = callScore >= minCallScore and callScore > putScore and not isFilteredTime
+isPutSignal = putScore >= minPutScore and putScore > callScore and not isFilteredTime
+isNeutral = not isCallSignal and not isPutSignal
+
+currentSignal = isCallSignal ? "BUY CALL" : isPutSignal ? "BUY PUT" : "NEUTRAL"
+signalStrength = isCallSignal ? callStrength : isPutSignal ? putStrength : "NONE"
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 4: ENTRY/EXIT LEVELS CALCULATION
+// ════════════════════════════════════════════════════════════════════════════
+
+entryPrice = close
+slDistance = atrValue * slMultiplier
+target1 = isCallSignal ? close + target1Points : isPutSignal ? close - target1Points : close
+target2 = isCallSignal ? close + target2Points : isPutSignal ? close - target2Points : close
+stopLoss = isCallSignal ? close - slDistance : isPutSignal ? close + slDistance : close
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 5: PLOTTING ON CHART (Optimized for 64 plot limit)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.1 VWAP (1 plot)
+// ─────────────────────────────────────────────────────────────────────────────
+plot(showVWAP ? vwapValue : na, "VWAP", color=color.new(#2962FF, 0), linewidth=2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.2 CPR Levels (3 main + 4 optional = 7 plots max)
+// ─────────────────────────────────────────────────────────────────────────────
+plot(showCPR ? pivotPoint : na, "Pivot Point", color=color.new(#FFA726, 0), linewidth=1, style=plot.style_cross)
+plot(showCPR ? bc : na, "BC", color=color.new(#FF6D00, 0), linewidth=1)
+plot(showCPR ? tc : na, "TC", color=color.new(#FF6D00, 0), linewidth=1)
+
+plot(showCPRSR ? r1 : na, "R1", color=color.new(#FF1744, 0), linewidth=1, style=plot.style_linebr)
+plot(showCPRSR ? r2 : na, "R2", color=color.new(#FF1744, 50), linewidth=1, style=plot.style_linebr)
+plot(showCPRSR ? s1 : na, "S1", color=color.new(#00E676, 0), linewidth=1, style=plot.style_linebr)
+plot(showCPRSR ? s2 : na, "S2", color=color.new(#00E676, 50), linewidth=1, style=plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.3 EMAs (3 plots)
+// ─────────────────────────────────────────────────────────────────────────────
+plot(showEMA ? emaFast : na, "EMA Fast", color=color.new(#00E676, 0), linewidth=2)
+plot(showEMA ? emaMed : na, "EMA Medium", color=color.new(#2196F3, 0), linewidth=2)
+plot(showEMA ? emaSlow : na, "EMA Slow", color=color.new(#FF9800, 0), linewidth=2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.4 Supertrend (1 plot with dynamic color)
+// ─────────────────────────────────────────────────────────────────────────────
+stColor = stBullish ? color.new(#00E676, 0) : color.new(#FF1744, 0)
+plot(showSupertrend ? supertrend : na, "Supertrend", color=stColor, linewidth=2, style=plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.5 Bollinger Bands (3 plots)
+// ─────────────────────────────────────────────────────────────────────────────
+plot(showBB ? bbUpper : na, "BB Upper", color=color.new(#FF1744, 0), linewidth=1)
+plot(showBB ? bbBasis : na, "BB Middle", color=color.new(#9E9E9E, 0), linewidth=1)
+plot(showBB ? bbLower : na, "BB Lower", color=color.new(#00E676, 0), linewidth=1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.6 Parabolic SAR (1 plot)
+// ─────────────────────────────────────────────────────────────────────────────
+psarPlotColor = psarBullish ? color.new(#00E676, 0) : color.new(#FF1744, 0)
+plot(showPSAR ? psarValue : na, "Parabolic SAR", color=psarPlotColor, style=plot.style_circles, linewidth=1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.7 Previous Day High/Low (2 plots)
+// ─────────────────────────────────────────────────────────────────────────────
+plot(showPrevDayHL ? prevDayHigh : na, "Prev Day High", color=color.new(#FF1744, 40), linewidth=1, style=plot.style_linebr)
+plot(showPrevDayHL ? prevDayLow : na, "Prev Day Low", color=color.new(#00E676, 40), linewidth=1, style=plot.style_linebr)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 6: SIGNAL DASHBOARD TABLE
+// ════════════════════════════════════════════════════════════════════════════
+
+tablePos = switch tablePosition
+    "Top Right" => position.top_right
+    "Top Left" => position.top_left
+    "Bottom Right" => position.bottom_right
+    "Bottom Left" => position.bottom_left
+    => position.top_right
+
+// Colors
+callScoreColor = callScore >= 20 ? #00FF00 : callScore >= 15 ? #66FF66 : callScore >= 10 ? #FFFF00 : #808080
+putScoreColor = putScore >= 20 ? #FF0000 : putScore >= 15 ? #FF6666 : putScore >= 10 ? #FFA500 : #808080
+signalColor = isCallSignal ? #00FF00 : isPutSignal ? #FF0000 : #808080
+
+var table signalTable = table.new(tablePos, 2, 20, bgcolor=color.new(#1E1E1E, 15), border_width=1, border_color=color.new(#404040, 0))
+
+if showSignalTable and barstate.islast
+    // Header
+    table.cell(signalTable, 0, 0, "═══ CONFLUENCE DASHBOARD ═══", bgcolor=#2A2A2A, text_color=#FFFFFF, text_size=size.small)
+    table.merge_cells(signalTable, 0, 0, 1, 0)
+    
+    // Scores
+    table.cell(signalTable, 0, 1, "CALL Score:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 1, str.tostring(callScore) + "/35 [" + callStrength + "]", text_color=callScoreColor, text_size=size.tiny)
+    
+    table.cell(signalTable, 0, 2, "PUT Score:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 2, str.tostring(putScore) + "/35 [" + putStrength + "]", text_color=putScoreColor, text_size=size.tiny)
+    
+    // Separator
+    table.cell(signalTable, 0, 3, "───────────────", text_color=#404040, text_size=size.tiny)
+    table.merge_cells(signalTable, 0, 3, 1, 3)
+    
+    // Signal
+    table.cell(signalTable, 0, 4, "Signal:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 4, currentSignal, text_color=signalColor, text_size=size.tiny)
+    
+    table.cell(signalTable, 0, 5, "Strength:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 5, signalStrength, text_color=signalColor, text_size=size.tiny)
+    
+    // Separator
+    table.cell(signalTable, 0, 6, "───────────────", text_color=#404040, text_size=size.tiny)
+    table.merge_cells(signalTable, 0, 6, 1, 6)
+    
+    // Levels
+    table.cell(signalTable, 0, 7, "Entry:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 7, str.tostring(entryPrice, format.mintick), text_color=#FFFFFF, text_size=size.tiny)
+    
+    table.cell(signalTable, 0, 8, "Target 1:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 8, str.tostring(target1, format.mintick), text_color=#00E676, text_size=size.tiny)
+    
+    table.cell(signalTable, 0, 9, "Target 2:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 9, str.tostring(target2, format.mintick), text_color=#00E676, text_size=size.tiny)
+    
+    table.cell(signalTable, 0, 10, "Stop Loss:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 10, str.tostring(stopLoss, format.mintick), text_color=#FF1744, text_size=size.tiny)
+    
+    // Separator
+    table.cell(signalTable, 0, 11, "───────────────", text_color=#404040, text_size=size.tiny)
+    table.merge_cells(signalTable, 0, 11, 1, 11)
+    
+    // Indicators Status
+    table.cell(signalTable, 0, 12, "═══ INDICATORS ═══", text_color=#AAAAAA, text_size=size.tiny)
+    table.merge_cells(signalTable, 0, 12, 1, 12)
+    
+    // VWAP
+    vwapStatus = close > vwapValue ? "✓ BULLISH" : "✗ BEARISH"
+    vwapCol = close > vwapValue ? #00FF00 : #FF0000
+    table.cell(signalTable, 0, 13, "VWAP:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 13, vwapStatus, text_color=vwapCol, text_size=size.tiny)
+    
+    // CPR
+    cprStatus = close > tc ? "✓ BULLISH" : close < bc ? "✗ BEARISH" : "- NEUTRAL"
+    cprCol = close > tc ? #00FF00 : close < bc ? #FF0000 : #808080
+    table.cell(signalTable, 0, 14, "CPR:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 14, cprStatus, text_color=cprCol, text_size=size.tiny)
+    
+    // EMA
+    emaBull = emaFast > emaMed and emaMed > emaSlow
+    emaBear = emaFast < emaMed and emaMed < emaSlow
+    emaStatus = emaBull ? "✓ BULLISH" : emaBear ? "✗ BEARISH" : "- MIXED"
+    emaCol = emaBull ? #00FF00 : emaBear ? #FF0000 : #808080
+    table.cell(signalTable, 0, 15, "EMA:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 15, emaStatus, text_color=emaCol, text_size=size.tiny)
+    
+    // MACD
+    macdStatus = macdBullish ? "✓ BULLISH" : "✗ BEARISH"
+    macdCol = macdBullish ? #00FF00 : #FF0000
+    table.cell(signalTable, 0, 16, "MACD:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 16, macdStatus, text_color=macdCol, text_size=size.tiny)
+    
+    // Supertrend
+    stStatus = stBullish ? "✓ BULLISH" : "✗ BEARISH"
+    stCol = stBullish ? #00FF00 : #FF0000
+    table.cell(signalTable, 0, 17, "Supertrend:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 17, stStatus, text_color=stCol, text_size=size.tiny)
+    
+    // ADX
+    adxStatus = isTrending ? "✓ TREND (" + str.tostring(adxValue, "#.#") + ")" : "✗ WEAK (" + str.tostring(adxValue, "#.#") + ")"
+    adxCol = isTrending ? #00FF00 : #FFA500
+    table.cell(signalTable, 0, 18, "ADX:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 18, adxStatus, text_color=adxCol, text_size=size.tiny)
+    
+    // RSI
+    rsiStatus = isRSIOversold ? "✓ OVERSOLD" : isRSIOverbought ? "✗ OVERBOUGHT" : "- " + str.tostring(rsiValue, "#.#")
+    rsiCol = isRSIOversold ? #00FF00 : isRSIOverbought ? #FF0000 : #808080
+    table.cell(signalTable, 0, 19, "RSI:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(signalTable, 1, 19, rsiStatus, text_color=rsiCol, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 7: SIGNAL LABELS ON CHART
+// ════════════════════════════════════════════════════════════════════════════
+
+// Only show label when signal first appears (to reduce clutter)
+newCallSignal = isCallSignal and not isCallSignal[1]
+newPutSignal = isPutSignal and not isPutSignal[1]
+
+if showSignalLabels and newCallSignal
+    label.new(bar_index, low, "BUY CALL\n[" + str.tostring(callScore) + "]", 
+              style=label.style_label_up, 
+              color=#00E676, 
+              textcolor=#FFFFFF, 
+              size=size.small)
+
+if showSignalLabels and newPutSignal
+    label.new(bar_index, high, "BUY PUT\n[" + str.tostring(putScore) + "]", 
+              style=label.style_label_down, 
+              color=#FF1744, 
+              textcolor=#FFFFFF, 
+              size=size.small)
+
+// Supertrend Flip Labels
+if showSignalLabels and stFlipBullish
+    label.new(bar_index, low, "ST↑", 
+              style=label.style_label_up, 
+              color=color.new(#00E676, 50), 
+              textcolor=#FFFFFF, 
+              size=size.tiny)
+
+if showSignalLabels and stFlipBearish
+    label.new(bar_index, high, "ST↓", 
+              style=label.style_label_down, 
+              color=color.new(#FF1744, 50), 
+              textcolor=#FFFFFF, 
+              size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 8: ALERT CONDITIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Strong Signals
+alertcondition(callScore >= 20 and not isFilteredTime, title="1. Strong CALL Signal", 
+     message="{{ticker}} - STRONG CALL! Score: {{plot_0}}/35. Entry: {{close}}")
+
+alertcondition(putScore >= 20 and not isFilteredTime, title="2. Strong PUT Signal", 
+     message="{{ticker}} - STRONG PUT! Score: {{plot_1}}/35. Entry: {{close}}")
+
+// Moderate Signals
+alertcondition(callScore >= 15 and callScore < 20 and not isFilteredTime, title="3. Moderate CALL Signal", 
+     message="{{ticker}} - MODERATE CALL! Score: {{plot_0}}/35. Entry: {{close}}")
+
+alertcondition(putScore >= 15 and putScore < 20 and not isFilteredTime, title="4. Moderate PUT Signal", 
+     message="{{ticker}} - MODERATE PUT! Score: {{plot_1}}/35. Entry: {{close}}")
+
+// Supertrend Flips
+alertcondition(stFlipBullish, title="5. Supertrend Flip BULLISH", 
+     message="{{ticker}} - Supertrend flipped BULLISH at {{close}}")
+
+alertcondition(stFlipBearish, title="6. Supertrend Flip BEARISH", 
+     message="{{ticker}} - Supertrend flipped BEARISH at {{close}}")
+
+// MACD Crossovers
+alertcondition(macdBullishCross, title="7. MACD Bullish Cross", 
+     message="{{ticker}} - MACD BULLISH crossover at {{close}}")
+
+alertcondition(macdBearishCross, title="8. MACD Bearish Cross", 
+     message="{{ticker}} - MACD BEARISH crossover at {{close}}")
+
+// EMA Crossovers
+alertcondition(emaBullishCross, title="9. EMA Bullish Cross", 
+     message="{{ticker}} - EMA BULLISH crossover at {{close}}")
+
+alertcondition(emaBearishCross, title="10. EMA Bearish Cross", 
+     message="{{ticker}} - EMA BEARISH crossover at {{close}}")
+
+// Bollinger Squeeze
+alertcondition(isBBSqueeze and not isBBSqueeze[1], title="11. Bollinger Squeeze", 
+     message="{{ticker}} - BB Squeeze detected! Breakout expected")
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// END OF SCRIPT
+// ════════════════════════════════════════════════════════════════════════════
