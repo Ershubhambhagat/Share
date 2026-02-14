@@ -1,0 +1,538 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+
+//@version=5
+indicator("Trend + Scalp + Stop Signals", 
+     shorttitle="Confluence V4", 
+     overlay=true,
+     max_labels_count=300,
+     max_lines_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 1: INPUT SETTINGS
+// ════════════════════════════════════════════════════════════════════════════
+
+grp_display = "═══ DISPLAY SETTINGS ═══"
+showVWAP = input.bool(true, "Show VWAP", group=grp_display)
+showCPR = input.bool(true, "Show CPR", group=grp_display)
+showEMA = input.bool(true, "Show EMA Lines", group=grp_display)
+showSupertrend = input.bool(true, "Show Supertrend", group=grp_display)
+showPrevDayHL = input.bool(false, "Show Prev Day High/Low", group=grp_display)
+showSignalTable = input.bool(true, "Show Dashboard", group=grp_display)
+showTrendSignals = input.bool(true, "Show TREND Signals", group=grp_display)
+showScalpSignals = input.bool(true, "Show SCALP Signals", group=grp_display)
+showStopSignals = input.bool(true, "Show STOP/EXIT Signals", group=grp_display)
+
+grp_signal = "═══ SIGNAL THRESHOLDS ═══"
+minTrendScore = input.int(15, "Min TREND Score", minval=10, maxval=25, group=grp_signal)
+minScalpScore = input.int(12, "Min SCALP Score", minval=8, maxval=20, group=grp_signal)
+
+grp_ema = "═══ EMA SETTINGS ═══"
+emaFastLen = input.int(9, "Fast EMA", minval=3, maxval=50, group=grp_ema)
+emaMedLen = input.int(21, "Medium EMA", minval=10, maxval=100, group=grp_ema)
+emaSlowLen = input.int(50, "Slow EMA", minval=20, maxval=200, group=grp_ema)
+
+grp_st = "═══ SUPERTREND SETTINGS ═══"
+stATRPeriod = input.int(10, "ATR Period", minval=5, maxval=20, group=grp_st)
+stMultiplier = input.float(3.0, "Multiplier", minval=1.0, maxval=5.0, step=0.5, group=grp_st)
+
+grp_sl = "═══ TARGET & STOP LOSS ═══"
+scalpTarget = input.int(30, "Scalp Target (Points)", minval=10, maxval=50, group=grp_sl)
+trendTarget = input.int(50, "Trend Target (Points)", minval=30, maxval=200, group=grp_sl)
+slPoints = input.int(25, "Stop Loss (Points)", minval=10, maxval=50, group=grp_sl)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 2: INDICATOR CALCULATIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// VWAP
+vwapValue = ta.vwap(hlc3)
+priceAboveVWAP = close > vwapValue
+priceBelowVWAP = close < vwapValue
+
+// CPR (Previous Day)
+prevDayHigh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+prevDayLow = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+
+pivotPoint = (prevDayHigh + prevDayLow + prevDayClose) / 3
+bc = (prevDayHigh + prevDayLow) / 2
+tc = (pivotPoint - bc) + pivotPoint
+
+priceAboveTC = close > tc
+priceBelowBC = close < bc
+priceAbovePP = close > pivotPoint
+
+// EMA
+emaFast = ta.ema(close, emaFastLen)
+emaMed = ta.ema(close, emaMedLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+emaBullishStack = emaFast > emaMed and emaMed > emaSlow
+emaBearishStack = emaFast < emaMed and emaMed < emaSlow
+priceAboveFastEMA = close > emaFast
+priceBelowFastEMA = close < emaFast
+emaBullishCross = ta.crossover(emaFast, emaMed)
+emaBearishCross = ta.crossunder(emaFast, emaMed)
+fastEMARising = emaFast > emaFast[2]
+fastEMAFalling = emaFast < emaFast[2]
+
+// RSI
+rsiValue = ta.rsi(close, 14)
+rsiOverbought = rsiValue > 70
+rsiOversold = rsiValue < 30
+rsiBullish = rsiValue > 50
+rsiBearish = rsiValue < 50
+rsiRising = rsiValue > rsiValue[2]
+rsiFalling = rsiValue < rsiValue[2]
+
+// MACD
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+macdBullish = macdLine > signalLine
+macdBearish = macdLine < signalLine
+macdBullishCross = ta.crossover(macdLine, signalLine)
+macdBearishCross = ta.crossunder(macdLine, signalLine)
+macdHistRising = histLine > histLine[1]
+macdHistFalling = histLine < histLine[1]
+
+// Supertrend
+[supertrend, direction] = ta.supertrend(stMultiplier, stATRPeriod)
+stBullish = direction < 0
+stBearish = direction > 0
+stFlipBullish = direction < 0 and direction[1] > 0
+stFlipBearish = direction > 0 and direction[1] < 0
+
+// Stochastic
+stochK = ta.sma(ta.stoch(close, high, low, 14), 3)
+stochD = ta.sma(stochK, 3)
+stochBullish = stochK > stochD
+stochBearish = stochK < stochD
+stochOversold = stochK < 20
+stochOverbought = stochK > 80
+stochBullishCross = ta.crossover(stochK, stochD)
+stochBearishCross = ta.crossunder(stochK, stochD)
+
+// ADX
+[diPlus, diMinus, adxValue] = ta.dmi(14, 14)
+isTrending = adxValue > 20
+adxBullish = diPlus > diMinus
+adxBearish = diMinus > diPlus
+
+// Volume
+volSMA = ta.sma(volume, 20)
+isHighVolume = volume > volSMA * 1.2
+isBullishCandle = close > open
+isBearishCandle = close < open
+
+// Price Action
+higherHigh = high > high[1]
+higherLow = low > low[1]
+lowerHigh = high < high[1]
+lowerLow = low < low[1]
+twoBullishCandles = close > open and close[1] > open[1]
+twoBearishCandles = close < open and close[1] < open[1]
+
+// ATR
+atrValue = ta.atr(14)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 3: TREND SIGNAL SCORING
+// ════════════════════════════════════════════════════════════════════════════
+
+// TREND CALL Score
+trendCallScore = 0
+trendCallScore += priceAboveVWAP ? 3 : 0
+trendCallScore += priceAboveTC ? 3 : 0
+trendCallScore += emaBullishStack ? 3 : 0
+trendCallScore += macdBullish ? 2 : 0
+trendCallScore += stBullish ? 3 : 0
+trendCallScore += adxBullish and isTrending ? 2 : 0
+trendCallScore += rsiBullish and not rsiOverbought ? 2 : 0
+trendCallScore += stochBullish ? 1 : 0
+trendCallScore += isHighVolume and isBullishCandle ? 1 : 0
+trendCallScore += emaBullishCross ? 2 : 0
+trendCallScore += macdBullishCross ? 2 : 0
+trendCallScore += stFlipBullish ? 3 : 0
+
+// TREND PUT Score
+trendPutScore = 0
+trendPutScore += priceBelowVWAP ? 3 : 0
+trendPutScore += priceBelowBC ? 3 : 0
+trendPutScore += emaBearishStack ? 3 : 0
+trendPutScore += macdBearish ? 2 : 0
+trendPutScore += stBearish ? 3 : 0
+trendPutScore += adxBearish and isTrending ? 2 : 0
+trendPutScore += rsiBearish and not rsiOversold ? 2 : 0
+trendPutScore += stochBearish ? 1 : 0
+trendPutScore += isHighVolume and isBearishCandle ? 1 : 0
+trendPutScore += emaBearishCross ? 2 : 0
+trendPutScore += macdBearishCross ? 2 : 0
+trendPutScore += stFlipBearish ? 3 : 0
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 4: SCALP SIGNAL SCORING (For catching bounces/reversals)
+// ════════════════════════════════════════════════════════════════════════════
+
+// SCALP CALL Score (momentum turning UP)
+scalpCallScore = 0
+scalpCallScore += fastEMARising ? 2 : 0
+scalpCallScore += rsiRising ? 2 : 0
+scalpCallScore += macdHistRising ? 2 : 0
+scalpCallScore += priceAboveFastEMA ? 2 : 0
+scalpCallScore += rsiOversold ? 3 : 0
+scalpCallScore += stochOversold ? 2 : 0
+scalpCallScore += stochBullishCross ? 3 : 0
+scalpCallScore += higherLow ? 2 : 0
+scalpCallScore += twoBullishCandles ? 2 : 0
+scalpCallScore += isBullishCandle and isHighVolume ? 2 : 0
+scalpCallScore += stFlipBullish ? 4 : 0
+scalpCallScore += macdBullishCross ? 3 : 0
+scalpCallScore += emaBullishCross ? 2 : 0
+
+// SCALP PUT Score (momentum turning DOWN)
+scalpPutScore = 0
+scalpPutScore += fastEMAFalling ? 2 : 0
+scalpPutScore += rsiFalling ? 2 : 0
+scalpPutScore += macdHistFalling ? 2 : 0
+scalpPutScore += priceBelowFastEMA ? 2 : 0
+scalpPutScore += rsiOverbought ? 3 : 0
+scalpPutScore += stochOverbought ? 2 : 0
+scalpPutScore += stochBearishCross ? 3 : 0
+scalpPutScore += lowerHigh ? 2 : 0
+scalpPutScore += twoBearishCandles ? 2 : 0
+scalpPutScore += isBearishCandle and isHighVolume ? 2 : 0
+scalpPutScore += stFlipBearish ? 4 : 0
+scalpPutScore += macdBearishCross ? 3 : 0
+scalpPutScore += emaBearishCross ? 2 : 0
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 5: SIGNAL DETERMINATION
+// ════════════════════════════════════════════════════════════════════════════
+
+// Trend Signals
+isTrendCall = trendCallScore >= minTrendScore and trendCallScore > trendPutScore + 5
+isTrendPut = trendPutScore >= minTrendScore and trendPutScore > trendCallScore + 5
+
+// Scalp Signals
+isScalpCall = scalpCallScore >= minScalpScore and scalpCallScore > scalpPutScore + 4
+isScalpPut = scalpPutScore >= minScalpScore and scalpPutScore > scalpCallScore + 4
+
+// New signal detection
+newTrendCall = isTrendCall and not isTrendCall[1]
+newTrendPut = isTrendPut and not isTrendPut[1]
+newScalpCall = isScalpCall and not isScalpCall[1]
+newScalpPut = isScalpPut and not isScalpPut[1]
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 6: STOP/EXIT SIGNAL LOGIC (KEY NEW FEATURE)
+// ════════════════════════════════════════════════════════════════════════════
+
+// Track active positions
+var bool inCallPosition = false
+var bool inPutPosition = false
+var float callEntryPrice = na
+var float putEntryPrice = na
+var int callEntryBar = na
+var int putEntryBar = na
+
+// Enter positions on signals
+if newTrendCall or newScalpCall
+    inCallPosition := true
+    inPutPosition := false
+    callEntryPrice := close
+    callEntryBar := bar_index
+    putEntryPrice := na
+
+if newTrendPut or newScalpPut
+    inPutPosition := true
+    inCallPosition := false
+    putEntryPrice := close
+    putEntryBar := bar_index
+    callEntryPrice := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STOP CONDITIONS FOR CALL POSITION
+// ─────────────────────────────────────────────────────────────────────────────
+stopCallCondition = false
+callStopReason = ""
+
+if inCallPosition and not na(callEntryPrice)
+    // 1. Price hit stop loss
+    if close < callEntryPrice - slPoints
+        stopCallCondition := true
+        callStopReason := "SL HIT"
+    
+    // 2. Supertrend flipped bearish
+    if stFlipBearish
+        stopCallCondition := true
+        callStopReason := "ST FLIP"
+    
+    // 3. Strong bearish reversal (multiple indicators flip)
+    bearishCount = 0
+    bearishCount += priceBelowVWAP ? 1 : 0
+    bearishCount += macdBearish and macdBearish[1] == false ? 1 : 0
+    bearishCount += emaBearishCross ? 1 : 0
+    bearishCount += twoBearishCandles ? 1 : 0
+    if bearishCount >= 3
+        stopCallCondition := true
+        callStopReason := "REVERSAL"
+    
+    // 4. Price closed below entry with 2 bearish candles
+    if close < callEntryPrice and twoBearishCandles
+        stopCallCondition := true
+        callStopReason := "WEAK"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STOP CONDITIONS FOR PUT POSITION
+// ─────────────────────────────────────────────────────────────────────────────
+stopPutCondition = false
+putStopReason = ""
+
+if inPutPosition and not na(putEntryPrice)
+    // 1. Price hit stop loss
+    if close > putEntryPrice + slPoints
+        stopPutCondition := true
+        putStopReason := "SL HIT"
+    
+    // 2. Supertrend flipped bullish
+    if stFlipBullish
+        stopPutCondition := true
+        putStopReason := "ST FLIP"
+    
+    // 3. Strong bullish reversal (multiple indicators flip)
+    bullishCount = 0
+    bullishCount += priceAboveVWAP ? 1 : 0
+    bullishCount += macdBullish and macdBullish[1] == false ? 1 : 0
+    bullishCount += emaBullishCross ? 1 : 0
+    bullishCount += twoBullishCandles ? 1 : 0
+    if bullishCount >= 3
+        stopPutCondition := true
+        putStopReason := "REVERSAL"
+    
+    // 4. Price closed above entry with 2 bullish candles
+    if close > putEntryPrice and twoBullishCandles
+        stopPutCondition := true
+        putStopReason := "WEAK"
+
+// Exit positions
+if stopCallCondition
+    inCallPosition := false
+    callEntryPrice := na
+
+if stopPutCondition
+    inPutPosition := false
+    putEntryPrice := na
+
+// Target hit detection
+callTargetHit = inCallPosition and not na(callEntryPrice) and close >= callEntryPrice + scalpTarget
+putTargetHit = inPutPosition and not na(putEntryPrice) and close <= putEntryPrice - scalpTarget
+
+if callTargetHit
+    inCallPosition := false
+    callEntryPrice := na
+
+if putTargetHit
+    inPutPosition := false
+    putEntryPrice := na
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 7: PLOTTING
+// ════════════════════════════════════════════════════════════════════════════
+
+// VWAP
+plot(showVWAP ? vwapValue : na, "VWAP", color=color.new(#2962FF, 0), linewidth=2)
+
+// CPR
+plot(showCPR ? pivotPoint : na, "PP", color=color.new(#FFA726, 0), linewidth=1, style=plot.style_cross)
+plot(showCPR ? bc : na, "BC", color=color.new(#FF6D00, 0), linewidth=1)
+plot(showCPR ? tc : na, "TC", color=color.new(#FF6D00, 0), linewidth=1)
+
+// EMAs
+plot(showEMA ? emaFast : na, "EMA 9", color=color.new(#00E676, 0), linewidth=2)
+plot(showEMA ? emaMed : na, "EMA 21", color=color.new(#2196F3, 0), linewidth=2)
+plot(showEMA ? emaSlow : na, "EMA 50", color=color.new(#FF9800, 0), linewidth=2)
+
+// Supertrend
+stColor = stBullish ? color.new(#00E676, 0) : color.new(#FF1744, 0)
+plot(showSupertrend ? supertrend : na, "Supertrend", color=stColor, linewidth=2, style=plot.style_linebr)
+
+// Prev Day High/Low
+plot(showPrevDayHL ? prevDayHigh : na, "PDH", color=color.new(#FF1744, 50), linewidth=1, style=plot.style_linebr)
+plot(showPrevDayHL ? prevDayLow : na, "PDL", color=color.new(#00E676, 50), linewidth=1, style=plot.style_linebr)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 8: SIGNAL DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+
+var table dashboard = table.new(position.top_left, 2, 18, bgcolor=color.new(#1E1E1E, 10), border_width=1, border_color=#404040)
+
+if showSignalTable and barstate.islast
+    // Header
+    table.cell(dashboard, 0, 0, "═══ CONFLUENCE V4 ═══", bgcolor=#2A2A2A, text_color=#FFFFFF, text_size=size.small)
+    table.merge_cells(dashboard, 0, 0, 1, 0)
+    
+    // TREND Scores
+    table.cell(dashboard, 0, 1, "─── TREND ───", text_color=#AAAAAA, text_size=size.tiny)
+    table.merge_cells(dashboard, 0, 1, 1, 1)
+    
+    trendCallColor = trendCallScore >= 20 ? #00FF00 : trendCallScore >= 15 ? #66FF66 : #808080
+    table.cell(dashboard, 0, 2, "CALL:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 2, str.tostring(trendCallScore), text_color=trendCallColor, text_size=size.tiny)
+    
+    trendPutColor = trendPutScore >= 20 ? #FF0000 : trendPutScore >= 15 ? #FF6666 : #808080
+    table.cell(dashboard, 0, 3, "PUT:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 3, str.tostring(trendPutScore), text_color=trendPutColor, text_size=size.tiny)
+    
+    // SCALP Scores
+    table.cell(dashboard, 0, 4, "─── SCALP ───", text_color=#AAAAAA, text_size=size.tiny)
+    table.merge_cells(dashboard, 0, 4, 1, 4)
+    
+    scalpCallColor = scalpCallScore >= 15 ? #00FFFF : scalpCallScore >= 12 ? #66FFFF : #808080
+    table.cell(dashboard, 0, 5, "CALL:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 5, str.tostring(scalpCallScore), text_color=scalpCallColor, text_size=size.tiny)
+    
+    scalpPutColor = scalpPutScore >= 15 ? #FF00FF : scalpPutScore >= 12 ? #FF66FF : #808080
+    table.cell(dashboard, 0, 6, "PUT:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 6, str.tostring(scalpPutScore), text_color=scalpPutColor, text_size=size.tiny)
+    
+    // Position Status
+    table.cell(dashboard, 0, 7, "─── POSITION ───", text_color=#AAAAAA, text_size=size.tiny)
+    table.merge_cells(dashboard, 0, 7, 1, 7)
+    
+    posStatus = inCallPosition ? "IN CALL" : inPutPosition ? "IN PUT" : "FLAT"
+    posColor = inCallPosition ? #00FF00 : inPutPosition ? #FF0000 : #808080
+    table.cell(dashboard, 0, 8, "Status:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 8, posStatus, text_color=posColor, text_size=size.tiny)
+    
+    // Entry Price
+    entryPx = inCallPosition ? callEntryPrice : inPutPosition ? putEntryPrice : na
+    table.cell(dashboard, 0, 9, "Entry:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 9, na(entryPx) ? "-" : str.tostring(entryPx, format.mintick), text_color=#FFFFFF, text_size=size.tiny)
+    
+    // P&L
+    pnl = inCallPosition and not na(callEntryPrice) ? close - callEntryPrice : 
+          inPutPosition and not na(putEntryPrice) ? putEntryPrice - close : 0
+    pnlColor = pnl > 0 ? #00FF00 : pnl < 0 ? #FF0000 : #808080
+    table.cell(dashboard, 0, 10, "P&L:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 10, str.tostring(pnl, "#.##") + " pts", text_color=pnlColor, text_size=size.tiny)
+    
+    // Indicators
+    table.cell(dashboard, 0, 11, "─── STATUS ───", text_color=#AAAAAA, text_size=size.tiny)
+    table.merge_cells(dashboard, 0, 11, 1, 11)
+    
+    table.cell(dashboard, 0, 12, "VWAP:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 12, priceAboveVWAP ? "↑" : "↓", text_color=priceAboveVWAP ? #00FF00 : #FF0000, text_size=size.tiny)
+    
+    table.cell(dashboard, 0, 13, "EMA:", text_color=#CCCCCC, text_size=size.tiny)
+    emaStatus = emaBullishStack ? "↑↑" : emaBearishStack ? "↓↓" : "→"
+    table.cell(dashboard, 1, 13, emaStatus, text_color=emaBullishStack ? #00FF00 : emaBearishStack ? #FF0000 : #FFFF00, text_size=size.tiny)
+    
+    table.cell(dashboard, 0, 14, "ST:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 14, stBullish ? "↑" : "↓", text_color=stBullish ? #00FF00 : #FF0000, text_size=size.tiny)
+    
+    table.cell(dashboard, 0, 15, "MACD:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 15, macdBullish ? "↑" : "↓", text_color=macdBullish ? #00FF00 : #FF0000, text_size=size.tiny)
+    
+    table.cell(dashboard, 0, 16, "RSI:", text_color=#CCCCCC, text_size=size.tiny)
+    rsiStatus = rsiOversold ? "OS" : rsiOverbought ? "OB" : str.tostring(rsiValue, "#")
+    table.cell(dashboard, 1, 16, rsiStatus, text_color=rsiOversold ? #00FF00 : rsiOverbought ? #FF0000 : #FFFFFF, text_size=size.tiny)
+    
+    table.cell(dashboard, 0, 17, "ADX:", text_color=#CCCCCC, text_size=size.tiny)
+    table.cell(dashboard, 1, 17, str.tostring(adxValue, "#"), text_color=isTrending ? #00FF00 : #FFA500, text_size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 9: SIGNAL LABELS
+// ════════════════════════════════════════════════════════════════════════════
+
+// TREND CALL (Green)
+if showTrendSignals and newTrendCall
+    label.new(bar_index, low, "TREND\nCALL\n" + str.tostring(trendCallScore), 
+              style=label.style_label_up, color=#00E676, textcolor=#FFFFFF, size=size.small)
+
+// TREND PUT (Red)
+if showTrendSignals and newTrendPut
+    label.new(bar_index, high, "TREND\nPUT\n" + str.tostring(trendPutScore), 
+              style=label.style_label_down, color=#FF1744, textcolor=#FFFFFF, size=size.small)
+
+// SCALP CALL (Cyan)
+if showScalpSignals and newScalpCall
+    label.new(bar_index, low, "SCALP\nCALL\n" + str.tostring(scalpCallScore), 
+              style=label.style_label_up, color=#00BCD4, textcolor=#FFFFFF, size=size.small)
+
+// SCALP PUT (Magenta)
+if showScalpSignals and newScalpPut
+    label.new(bar_index, high, "SCALP\nPUT\n" + str.tostring(scalpPutScore), 
+              style=label.style_label_down, color=#E91E63, textcolor=#FFFFFF, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STOP/EXIT SIGNALS (Yellow/Orange)
+// ════════════════════════════════════════════════════════════════════════════
+
+// STOP CALL - Exit long position
+if showStopSignals and stopCallCondition
+    label.new(bar_index, high, "⚠️ STOP\nCALL\n" + callStopReason, 
+              style=label.style_label_down, color=#FF9800, textcolor=#000000, size=size.small)
+
+// STOP PUT - Exit short position
+if showStopSignals and stopPutCondition
+    label.new(bar_index, low, "⚠️ STOP\nPUT\n" + putStopReason, 
+              style=label.style_label_up, color=#FF9800, textcolor=#000000, size=size.small)
+
+// TARGET HIT Labels
+if showStopSignals and callTargetHit
+    label.new(bar_index, high, "✓ TARGET\nHIT", 
+              style=label.style_label_down, color=#4CAF50, textcolor=#FFFFFF, size=size.tiny)
+
+if showStopSignals and putTargetHit
+    label.new(bar_index, low, "✓ TARGET\nHIT", 
+              style=label.style_label_up, color=#4CAF50, textcolor=#FFFFFF, size=size.tiny)
+
+// Supertrend Flip Labels
+if stFlipBullish
+    label.new(bar_index, low, "ST↑", style=label.style_label_up, 
+              color=color.new(#00E676, 50), textcolor=#FFFFFF, size=size.tiny)
+
+if stFlipBearish
+    label.new(bar_index, high, "ST↓", style=label.style_label_down, 
+              color=color.new(#FF1744, 50), textcolor=#FFFFFF, size=size.tiny)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 10: BACKGROUND HIGHLIGHTING
+// ════════════════════════════════════════════════════════════════════════════
+
+// Position background
+bgcolor(inCallPosition ? color.new(#00FF00, 95) : na, title="In Call Position")
+bgcolor(inPutPosition ? color.new(#FF0000, 95) : na, title="In Put Position")
+
+// RSI Extreme zones
+bgcolor(rsiOversold ? color.new(#00FF00, 92) : na, title="RSI Oversold")
+bgcolor(rsiOverbought ? color.new(#FF0000, 92) : na, title="RSI Overbought")
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 11: ALERTS
+// ════════════════════════════════════════════════════════════════════════════
+
+alertcondition(newTrendCall, title="1. TREND CALL", message="{{ticker}} TREND CALL at {{close}}")
+alertcondition(newTrendPut, title="2. TREND PUT", message="{{ticker}} TREND PUT at {{close}}")
+alertcondition(newScalpCall, title="3. SCALP CALL", message="{{ticker}} SCALP CALL at {{close}}")
+alertcondition(newScalpPut, title="4. SCALP PUT", message="{{ticker}} SCALP PUT at {{close}}")
+alertcondition(stopCallCondition, title="5. ⚠️ STOP CALL", message="{{ticker}} EXIT CALL position!")
+alertcondition(stopPutCondition, title="6. ⚠️ STOP PUT", message="{{ticker}} EXIT PUT position!")
+alertcondition(callTargetHit, title="7. ✓ CALL Target Hit", message="{{ticker}} CALL target reached!")
+alertcondition(putTargetHit, title="8. ✓ PUT Target Hit", message="{{ticker}} PUT target reached!")
+alertcondition(stFlipBullish, title="9. Supertrend Bullish", message="{{ticker}} ST flipped bullish")
+alertcondition(stFlipBearish, title="10. Supertrend Bearish", message="{{ticker}} ST flipped bearish")
+
+// ════════════════════════════════════════════════════════════════════════════
+// END OF SCRIPT
+// ════════════════════════════════════════════════════════════════════════════
